@@ -104,10 +104,47 @@
 }
 
 .status-badge.warning {
-  background: rgba(239, 68, 68, 0.2);
+  background: rgba(239, 68, 68, 0.9);
+  color: white;
+  animation: shake 0.5s ease-in-out infinite;
+}
+
+.violation-toast {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.85);
+  padding: 1rem 2rem;
+  border-radius: 99px;
+  border: 1px solid #ef4444;
   color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  box-shadow: 0 4px 15px rgba(239, 68, 68, 0.2);
+  font-weight: 700;
+  font-size: 1.2rem;
+  z-index: 50;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  box-shadow: 0 0 30px rgba(239, 68, 68, 0.4);
+}
+
+.blink {
+  color: #ef4444;
+  animation: blink-anim 1s infinite;
+}
+
+@keyframes blink-anim {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
 }
 
 .metrics-panel {

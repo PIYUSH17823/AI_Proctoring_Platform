@@ -1,16 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import "./PreCheck.css";
 
-// 1. Fix TypeScript 'chrome' property error
 declare global {
   interface Window {
     chrome: any;
   }
 }
 
-// IMPORTANT: Replace this with the ID from chrome://extensions after loading
-const CHROME_EXTENSION_ID = "kmocgnickobghnainokjfiplkjmagech";
+const CHROME_EXTENSION_ID = "jlgeegkokgbcapibagboldphomponhac";
 
 interface DisplayInfo {
   displayCount: number;
@@ -26,6 +24,7 @@ interface DisplayInfo {
 
 const PreCheck = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -44,287 +43,276 @@ const PreCheck = () => {
   const [displayStatus, setDisplayStatus] = useState<"pending" | "pass" | "fail">("pending");
   const [displayMsg, setDisplayMsg] = useState("Click 'Authorize System' to test");
   const [extensionStatus, setExtensionStatus] = useState<"not_found" | "checking" | "found" | "not_supported">("checking");
+  const [showGuide, setShowGuide] = useState(false);
 
   const [isReady, setIsReady] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [candidateName, setCandidateName] = useState("");
+  const [interviewData, setInterviewData] = useState<any>(null);
 
-  // 1. Check if Chrome Extension is present (Polling every 2s)
+  // 0. Handle Invitation Parameter (Optional for Manual Testing)
   useEffect(() => {
-    if (!window.chrome || !window.chrome.runtime) {
+    const params = new URLSearchParams(location.search);
+    const inviteId = params.get("invite");
+    if (inviteId) {
+      fetch(`http://127.0.0.1:8000/api/interviews/invite/${inviteId}`)
+        .then(res => res.json())
+        .then(data => {
+           if (data.candidate_name) {
+              setCandidateName(data.candidate_name);
+              setInterviewData(data);
+           }
+        })
+        .catch(() => console.log("Direct access mode enabled (No Invite)"));
+    }
+  }, [location.search]);
+
+  // 1. Extension Detection
+  useEffect(() => {
+    console.log("[HyrAI Debug] chrome object:", !!window.chrome);
+    console.log("[HyrAI Debug] chrome.runtime:", !!window.chrome?.runtime);
+    console.log("[HyrAI Debug] sendMessage fn:", typeof window.chrome?.runtime?.sendMessage);
+
+    if (!window.chrome || !window.chrome.runtime || !window.chrome.runtime.sendMessage) {
+      console.warn("[HyrAI] Chrome runtime not available. Extension detection disabled.");
       setExtensionStatus("not_supported");
       return;
     }
 
-    const checkExtension = () => {
+    const check = () => {
       try {
-        window.chrome.runtime.sendMessage(CHROME_EXTENSION_ID, { type: "GET_DISPLAY_SECURITY" }, (response: DisplayInfo) => {
-          if (window.chrome.runtime.lastError) {
-            console.error("HyrAI Extension Connection Failed:", window.chrome.runtime.lastError.message);
+        console.log("[HyrAI Debug] Pinging extension:", CHROME_EXTENSION_ID);
+        window.chrome.runtime.sendMessage(CHROME_EXTENSION_ID, { type: "PING" }, (res: any) => {
+          const err = window.chrome.runtime.lastError;
+          if (err) {
+            console.warn("[HyrAI] Extension PING failed:", err.message);
             setExtensionStatus("not_found");
           } else {
-            console.log("HyrAI Extension Verified Successfully.");
+            console.log("[HyrAI] Extension PING success:", res);
             setExtensionStatus("found");
           }
         });
-      } catch (err) {
-        console.error("Extension sendMessage exception:", err);
+      } catch (e) {
+        console.error("[HyrAI] Extension check exception:", e);
         setExtensionStatus("not_found");
       }
     };
-
-    checkExtension();
-    const interval = setInterval(checkExtension, 2000);
+    check();
+    const interval = setInterval(check, 3000);
     return () => clearInterval(interval);
   }, []);
 
-  // 2. Network Test (Averaged over 3 fetches)
-  useEffect(() => {
-    let active = true;
-    const testNetwork = async () => {
-      let totalSpeed = 0;
-      const iterations = 3;
-      
-      for (let i = 0; i < iterations; i++) {
-        if (!active) return;
-        try {
-          const startTime = performance.now();
-          const response = await fetch("https://httpbin.org/bytes/100000"); // 100kb payload
-          await response.blob();
-          const endTime = performance.now();
-          
-          const durationSeconds = (endTime - startTime) / 1000;
-          const bitsLoaded = 100000 * 8;
-          const speedMbps = (bitsLoaded / durationSeconds) / (1024 * 1024);
-          totalSpeed += speedMbps;
-        } catch (e) {
-          if (active) setNetworkSpeed({ speedMbps: 0, status: "fail" });
-          return;
-        }
-      }
-      
-      if (active) {
-        const avgSpeed = totalSpeed / iterations;
-        setNetworkSpeed({
-          speedMbps: parseFloat(avgSpeed.toFixed(2)),
-          status: avgSpeed >= 0.5 ? "pass" : "fail" 
-        });
-      }
-    };
-    testNetwork();
-    return () => { active = false; };
-  }, []);
-
-  // 3. Camera, Mic & Background Noise
+  // 2. Camera, Mic, Network
   useEffect(() => {
     let stream: MediaStream | null = null;
-
     const setupMedia = async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 640 }, height: { ideal: 480 } },
-          audio: true
-        });
-
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         setPermissions({ camera: true, mic: true });
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-
+        if (videoRef.current) videoRef.current.srcObject = stream;
+        
         audioContextRef.current = new window.AudioContext();
         analyserRef.current = audioContextRef.current.createAnalyser();
-        analyserRef.current.fftSize = 256;
-        
         const source = audioContextRef.current.createMediaStreamSource(stream);
         source.connect(analyserRef.current);
-
         const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-
-        const updateVolume = () => {
+        
+        const update = () => {
           if (!analyserRef.current) return;
           analyserRef.current.getByteFrequencyData(dataArray);
-          let sum = 0;
-          for (let i = 0; i < dataArray.length; i++) {
-            sum += dataArray[i];
-          }
-          const average = sum / dataArray.length;
-          const percentage = Math.min(100, Math.round((average / 255) * 100 * 2));
-          setMicVolume(percentage);
-
-          volumeHistoryRef.current.push(percentage);
-          if (volumeHistoryRef.current.length > 120) { 
+          let sum = dataArray.reduce((p, c) => p + c, 0);
+          const pct = Math.min(100, Math.round((sum / dataArray.length / 255) * 200));
+          setMicVolume(pct);
+          volumeHistoryRef.current.push(pct);
+          if (volumeHistoryRef.current.length > 50) {
              volumeHistoryRef.current.shift();
-             const avgNoise = volumeHistoryRef.current.reduce((a, b) => a + b, 0) / 120;
-             setNoiseStatus(avgNoise > 35 ? "fail" : "pass");
+             const avg = volumeHistoryRef.current.reduce((a, b) => a + b, 0) / 50;
+             setNoiseStatus(avg > 35 ? "fail" : "pass");
           }
-
-          animationRef.current = requestAnimationFrame(updateVolume);
+          animationRef.current = requestAnimationFrame(update);
         };
-        updateVolume();
-
-      } catch (err: any) {
-        setPermissions({ camera: false, mic: false });
-        setErrorMsg("Failed to access Camera or Microphone.");
-      }
+        update();
+      } catch { setPermissions({ camera: false, mic: false }); }
     };
-
     setupMedia();
 
+    const testNet = async () => {
+      try {
+        const start = performance.now();
+        await fetch("https://httpbin.org/bytes/50000");
+        const dur = (performance.now() - start) / 1000;
+        const spd = (50000 * 8 / dur) / (1024 * 1024);
+        setNetworkSpeed({ speedMbps: parseFloat(spd.toFixed(2)), status: spd > 0.4 ? "pass" : "fail" });
+      } catch { setNetworkSpeed({ speedMbps: 0, status: "fail" }); }
+    };
+    testNet();
+
     return () => {
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
   }, []);
 
-  // 4. Advanced Heuristic Hardware Audit
-  const handleAuthorizeSetup = async (e: React.PointerEvent) => {
-    const inputType = e.pointerType; 
-    
+  // 3. Hardware Audit Logic
+  // PRIORITY: Extension > Browser API > Heuristics
+  // Extension is checked FIRST because it's the ONLY way to detect Duplicate/Mirror mode.
+  const handleAuthorizeSetup = async () => {
     try {
-      if (!window.isSecureContext) {
-        setDisplayStatus("fail");
-        setDisplayMsg("Environment not secure.");
-        return;
-      }
+      // ═══════════════════════════════════════════════════════════
+      // STEP 1: EXTENSION CHECK (highest priority — sees physical hardware)
+      // ═══════════════════════════════════════════════════════════
+      if (extensionStatus === "found") {
+        window.chrome.runtime.sendMessage(CHROME_EXTENSION_ID, { type: "GET_DISPLAY_SECURITY" }, (res: any) => {
+          console.log("[HyrAI] Extension raw response:", JSON.stringify(res));
 
-      // Step A: Peripheral Handshake Heuristic (Audio Outputs)
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const outputDevices = devices.filter(d => d.kind === 'audiooutput');
-      
-      const suspiciousKeywords = ["hdmi", "displayport", "samsung", "lg", "dell", "tv", "monitor", "projector", "pnp"];
-      const externalAudio = outputDevices.find(d => 
-        suspiciousKeywords.some(key => d.label.toLowerCase().includes(key))
-      );
-
-      if (externalAudio) {
-        setDisplayStatus("fail");
-        setDisplayMsg(`External peripheral detected: ${externalAudio.label}. Please unplug HDMI/DP.`);
-        return;
-      }
-
-      // Step B: Resolution Profiling
-      const screenWidth = window.screen.width;
-      const screenHeight = window.screen.height;
-      
-      // Standard duplicated projector or low-res monitor flags
-      const isLowRes = screenWidth <= 1366 && screenHeight <= 768; // Common mirroring sink target
-      if (isLowRes && window.devicePixelRatio < 2) {
-         setDisplayStatus("fail");
-         setDisplayMsg("Low resolution detected. This is typical of mirrored displays.");
-         return;
-      }
-
-      // Step C: Web API Check (Extended Monitors)
-      try {
-        const permName = "window-management" as PermissionName;
-        const permission = await navigator.permissions.query({ name: permName }).catch(() => 
-           navigator.permissions.query({ name: "window-placement" as PermissionName })
-        );
-
-        if (permission.state === 'denied') {
-          setDisplayStatus("fail");
-          setDisplayMsg("Allow 'Window Management' to verify hardware.");
-          return;
-        }
-
-        // @ts-ignore
-        if ("getScreenDetails" in window) {
-          // @ts-ignore
-          const details = await window.getScreenDetails();
-          const screen = details.screens[0];
-          
-          if (details.screens.length > 1) {
+          if (!res || !res.success) {
             setDisplayStatus("fail");
-            setDisplayMsg("Multiple displays detected.");
+            setDisplayMsg("Extension could not read display hardware.");
             return;
           }
 
-          // Check for Non-Internal Label Heuristic
-          const internalKeywords = ["internal", "built-in", "laptop", "integrated"];
-          const isGenericLabel = !internalKeywords.some(key => screen.label.toLowerCase().includes(key));
-          
-          if (!screen.isInternal || isGenericLabel) {
-             setDisplayStatus("fail");
-             setDisplayMsg(`Non-internal display found: ${screen.label}`);
-             return;
+          // Direct API flags
+          if (res.isMirrored) {
+            setDisplayStatus("fail");
+            setDisplayMsg("⛔ DUPLICATED DISPLAY DETECTED (Mirroring via HDMI/DP).");
+            return;
           }
-        }
-      } catch (err) {
-        console.warn("Web API Check failed, relying on Extension", err);
+          if (res.displayCount > 1) {
+            setDisplayStatus("fail");
+            setDisplayMsg(`⛔ ${res.displayCount} PHYSICAL MONITORS DETECTED. Disconnect external display.`);
+            return;
+          }
+          if (res.hasExternal) {
+            setDisplayStatus("fail");
+            setDisplayMsg("⛔ EXTERNAL MONITOR DETECTED. Use laptop screen only.");
+            return;
+          }
+
+          // ─── HEURISTIC CROSS-VALIDATION ───
+          // Windows "Duplicate" mode hides the second monitor from the API.
+          // But it leaves clues we can detect:
+          const display = res.displays?.[0];
+          if (display) {
+            const name = (display.name || "").toLowerCase();
+            // "Generic PnP Monitor" = HDMI/DP plugged in (real laptop panels show manufacturer names like BOE, AUO, Sharp)
+            const suspiciousNames = ["generic", "pnp", "hdmi", "displayport", "dp", "samsung", "lg", "dell", "benq", "acer", "asus", "viewsonic", "projector"];
+            const isSuspiciousName = suspiciousNames.some(s => name.includes(s));
+
+            if (isSuspiciousName) {
+              setDisplayStatus("fail");
+              setDisplayMsg(`⛔ Suspicious display: "${display.name}". Unplug HDMI/DP cable.`);
+              return;
+            }
+          }
+
+          // All checks passed
+          setDisplayStatus("pass");
+          setDisplayMsg("✓ Verified — Single internal display confirmed.");
+        });
+        return; // Extension handles everything, don't run browser checks
       }
 
-      // Step D: Extension Hardware Audit
-      if (extensionStatus !== "found") {
+      // ═══════════════════════════════════════════════════════════
+      // STEP 2: BROWSER API FALLBACK (only if no extension)
+      // ═══════════════════════════════════════════════════════════
+
+      // 2A: screen.isExtended (catches "Extend" mode but NOT "Duplicate")
+      // @ts-ignore
+      if (window.screen.isExtended) {
         setDisplayStatus("fail");
-        setDisplayMsg("Security Extension not active.");
+        setDisplayMsg("Extended desktop detected. Use single screen only.");
         return;
       }
 
-      window.chrome.runtime.sendMessage(CHROME_EXTENSION_ID, { type: "GET_DISPLAY_SECURITY" }, (response: DisplayInfo) => {
-        if (!response || !response.success) {
-          setDisplayStatus("fail");
-          setDisplayMsg("Could not verify hardware.");
-          return;
+      // 2B: getScreenDetails API
+      // @ts-ignore
+      if ("getScreenDetails" in window) {
+        try {
+          // @ts-ignore
+          const details = await window.getScreenDetails();
+          if (details.screens.length > 1) {
+            setDisplayStatus("fail");
+            setDisplayMsg(`${details.screens.length} monitors detected via browser API.`);
+            return;
+          }
+          if (!details.screens[0].isInternal) {
+            setDisplayStatus("fail");
+            setDisplayMsg("External screen detected. Use built-in display only.");
+            return;
+          }
+        } catch (e) {
+          console.warn("getScreenDetails failed:", e);
         }
+      }
 
-        const hasExternal = response.displays.some(d => !d.isInternal);
-        
-        if (response.isMirrored) {
-          setDisplayStatus("fail");
-          setDisplayMsg("Duplicated/Mirrored display detected.");
-        } else if (response.displayCount > 1 || hasExternal) {
-          setDisplayStatus("fail");
-          setDisplayMsg("External hardware detected. Use laptop screen only.");
-        } else {
-          setDisplayStatus("pass");
-          setDisplayMsg(`Hardware Verified. Mode: ${inputType}`);
-        }
-      });
+      // 2C: Audio peripheral heuristic
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const hdmiAudio = devices.find(d =>
+        d.kind === 'audiooutput' &&
+        ["hdmi", "displayport", "samsung", "lg", "dell", "tv", "monitor"].some(k => d.label.toLowerCase().includes(k))
+      );
+      if (hdmiAudio) {
+        setDisplayStatus("fail");
+        setDisplayMsg(`External display audio detected: ${hdmiAudio.label}`);
+        return;
+      }
+
+      // If we got here without extension, warn the user
+      setDisplayStatus("fail");
+      setDisplayMsg("⚠ Cannot detect mirror mode without extension. Click 'Installation Help'.");
 
     } catch (err) {
       setDisplayStatus("fail");
-      setDisplayMsg("Display check failed.");
+      setDisplayMsg("Audit verification failed.");
     }
   };
 
   useEffect(() => {
-    if (
-        permissions.camera && 
-        permissions.mic && 
-        networkSpeed.status === "pass" && 
-        noiseStatus !== "fail" &&
-        displayStatus === "pass" &&
-        candidateName.trim() !== ""
-    ) {
-      setIsReady(true);
-    } else {
-      setIsReady(false);
-    }
+    const ready = permissions.camera && permissions.mic && networkSpeed.status === "pass" && noiseStatus !== "fail" && displayStatus === "pass" && candidateName.length > 2;
+    setIsReady(ready);
   }, [permissions, networkSpeed, noiseStatus, displayStatus, candidateName]);
 
   return (
     <div className="precheck-container">
+      {showGuide && (
+        <div className="guide-modal">
+          <div className="guide-content">
+            <h2>HyrAI Security Guide</h2>
+            <p>To prevent screen mirroring (HDMI/DisplayPort) and ensure fairness, please install our extension.</p>
+            <ol>
+              <li>Download <strong>HyrAI_Guard.zip</strong>.</li>
+              <li>Open <code>chrome://extensions</code>.</li>
+              <li>Enable <strong>Developer mode</strong>.</li>
+              <li><strong>Load unpacked</strong> and select the extension folder.</li>
+            </ol>
+            <button className="action-btn" onClick={() => setShowGuide(false)}>Close Guide</button>
+          </div>
+        </div>
+      )}
+
       <div className="precheck-card">
         <h1>Proctoring Validation</h1>
-        <p className="subtitle">Strict hardware-level security audit in progress.</p>
+        <p className="subtitle">Production hardware security scan.</p>
 
-        {errorMsg && <div className="error-banner">{errorMsg}</div>}
+        {interviewData ? (
+           <div className="jd-banner">
+              <h3>Role: {interviewData.job_type}</h3>
+              <p>{interviewData.jd}</p>
+           </div>
+        ) : (
+           <div className="jd-banner" style={{ border: '1px dashed rgba(255,255,255,0.2)', background: 'transparent' }}>
+              <h3 style={{ color: '#94a3b8' }}>MANUAL TESTING MODE</h3>
+              <p>Invitation logic bypassed. System open for proctoring verification.</p>
+           </div>
+        )}
 
         <div className="candidate-input">
-          <label>Candidate Legal Name</label>
+          <label>Candidate Name</label>
           <input 
             type="text" 
             value={candidateName} 
             onChange={(e) => setCandidateName(e.target.value)}
-            placeholder="Enter your full name"
+            disabled={!!interviewData}
+            placeholder="Identity verification required"
           />
         </div>
 
@@ -332,15 +320,11 @@ const PreCheck = () => {
           <div className="video-preview-wrapper">
             <video ref={videoRef} autoPlay playsInline muted className="preview-video" />
             <div className={`status-badge ${permissions.camera ? 'pass' : 'fail'}`}>
-              {permissions.camera ? '✓ Camera Active' : '✗ Camera Blocked'}
+              {permissions.camera ? '✓ Identity Verified' : '✗ Camera Blocked'}
             </div>
-            
             <div className="display-auth-overlay">
-                <button 
-                  className={`auth-btn ${displayStatus !== 'pending' ? displayStatus : ''}`}
-                  onPointerDown={handleAuthorizeSetup}
-                >
-                   {displayStatus === 'pending' ? 'Authorize Hardware Guard' : displayMsg}
+                <button className={`auth-btn ${displayStatus}`} onClick={handleAuthorizeSetup}>
+                   {displayMsg}
                 </button>
             </div>
           </div>
@@ -348,43 +332,31 @@ const PreCheck = () => {
           <div className="metrics-column">
             <div className="metric-box">
               <div className="metric-header">
-                <h3>Audio Environment</h3>
-                <span className={`status ${permissions.mic ? 'pass' : 'fail'}`}>
-                   {permissions.mic ? 'Mic Ready' : 'Mic Blocked'}
-                </span>
+                <h3>Audio Stream</h3>
+                <span className={`status ${permissions.mic ? 'pass' : 'fail'}`}>{permissions.mic ? 'Live' : 'Off'}</span>
               </div>
               <div className="volume-bar-track">
-                <div className="volume-bar-fill" style={{ width: `${micVolume}%`, backgroundColor: micVolume > 80 ? '#f59e0b' : '#10b981' }} />
+                <div className="volume-bar-fill" style={{ width: `${micVolume}%`, background: micVolume > 70 ? '#f87171' : '#34d399' }} />
               </div>
-              <div className="sub-metric">
-                 <span className="info-text">Background Level:</span>
-                 <span className={`status-small ${noiseStatus}`}>
-                    {noiseStatus === 'testing' ? 'Analyzing...' : noiseStatus === 'pass' ? 'Low' : 'High'}
-                 </span>
-              </div>
+              <p className="info-text">Ambient Level: {noiseStatus === 'fail' ? "Noisy" : "Clear"}</p>
             </div>
 
             <div className="metric-box">
               <div className="metric-header">
-                <h3>Hardware Extension</h3>
+                <h3>Security Extension</h3>
                 <span className={`status ${extensionStatus === 'found' ? 'pass' : 'fail'}`}>
                   {extensionStatus === 'found' ? 'Active' : 'Missing'}
                 </span>
               </div>
-              <p className="extension-help">
-                {extensionStatus === 'not_found' && "Mirroring detection required. Ensure extension is loaded."}
-                {extensionStatus === 'found' && "Extension verified. Ready for hardware scan."}
-              </p>
+              <button className="guide-link-btn" onClick={() => setShowGuide(true)}>Installation Help</button>
             </div>
 
             <div className="metric-box">
               <div className="metric-header">
-                <h3>Network Avg</h3>
-                <span className={`status ${networkSpeed.status}`}>
-                  {networkSpeed.status === 'testing' ? 'Checking...' : networkSpeed.status === 'pass' ? 'Good' : 'Poor'}
-                </span>
+                <h3>Network Link</h3>
+                <span className={`status ${networkSpeed.status}`}>{networkSpeed.status === 'pass' ? 'Stable' : 'Unstable'}</span>
               </div>
-              <p className="sub-metric-info">{networkSpeed.speedMbps} Mbps detected</p>
+              <p className="sub-metric-info">{networkSpeed.speedMbps} Mbps</p>
             </div>
           </div>
         </div>
@@ -393,9 +365,9 @@ const PreCheck = () => {
           <button 
             className={`btn-primary ${!isReady ? 'disabled' : ''}`}
             disabled={!isReady}
-            onClick={async () => {
-               try { await document.documentElement.requestFullscreen(); } catch (e) {}
-               navigate('/interview', { state: { candidateName } });
+            onClick={() => {
+               document.documentElement.requestFullscreen().catch(() => {});
+               navigate('/interview', { state: { candidateName, jobType: interviewData?.job_type } });
             }}
           >
             Enter Secure Session
