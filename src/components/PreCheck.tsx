@@ -2,6 +2,28 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./PreCheck.css";
 
+// 1. Fix TypeScript 'chrome' property error
+declare global {
+  interface Window {
+    chrome: any;
+  }
+}
+
+// IMPORTANT: Replace this with the ID from chrome://extensions after loading
+const CHROME_EXTENSION_ID = "kmocgnickobghnainokjfiplkjmagech";
+
+interface DisplayInfo {
+  displayCount: number;
+  isMirrored: boolean;
+  success: boolean;
+  displays: {
+    id: string;
+    isInternal: boolean;
+    isPrimary: boolean;
+    name?: string;
+  }[];
+}
+
 const PreCheck = () => {
   const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -21,13 +43,42 @@ const PreCheck = () => {
 
   const [displayStatus, setDisplayStatus] = useState<"pending" | "pass" | "fail">("pending");
   const [displayMsg, setDisplayMsg] = useState("Click 'Authorize System' to test");
+  const [extensionStatus, setExtensionStatus] = useState<"not_found" | "checking" | "found" | "not_supported">("checking");
 
   const [isReady, setIsReady] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  
   const [candidateName, setCandidateName] = useState("");
 
-  // 1. Network Test (Averaged over 3 fetches)
+  // 1. Check if Chrome Extension is present (Polling every 2s)
+  useEffect(() => {
+    if (!window.chrome || !window.chrome.runtime) {
+      setExtensionStatus("not_supported");
+      return;
+    }
+
+    const checkExtension = () => {
+      try {
+        window.chrome.runtime.sendMessage(CHROME_EXTENSION_ID, { type: "GET_DISPLAY_SECURITY" }, (response: DisplayInfo) => {
+          if (window.chrome.runtime.lastError) {
+            console.error("HyrAI Extension Connection Failed:", window.chrome.runtime.lastError.message);
+            setExtensionStatus("not_found");
+          } else {
+            console.log("HyrAI Extension Verified Successfully.");
+            setExtensionStatus("found");
+          }
+        });
+      } catch (err) {
+        console.error("Extension sendMessage exception:", err);
+        setExtensionStatus("not_found");
+      }
+    };
+
+    checkExtension();
+    const interval = setInterval(checkExtension, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // 2. Network Test (Averaged over 3 fetches)
   useEffect(() => {
     let active = true;
     const testNetwork = async () => {
@@ -56,7 +107,7 @@ const PreCheck = () => {
         const avgSpeed = totalSpeed / iterations;
         setNetworkSpeed({
           speedMbps: parseFloat(avgSpeed.toFixed(2)),
-          status: avgSpeed >= 0.5 ? "pass" : "fail" // Lowered threshold to 0.5 Mbps
+          status: avgSpeed >= 0.5 ? "pass" : "fail" 
         });
       }
     };
@@ -64,7 +115,7 @@ const PreCheck = () => {
     return () => { active = false; };
   }, []);
 
-  // 2. Camera, Mic & Background Noise
+  // 3. Camera, Mic & Background Noise
   useEffect(() => {
     let stream: MediaStream | null = null;
 
@@ -101,16 +152,11 @@ const PreCheck = () => {
           const percentage = Math.min(100, Math.round((average / 255) * 100 * 2));
           setMicVolume(percentage);
 
-          // Background Noise continuous assessment
           volumeHistoryRef.current.push(percentage);
-          if (volumeHistoryRef.current.length > 120) { // ~2 seconds rolling window at 60fps
+          if (volumeHistoryRef.current.length > 120) { 
              volumeHistoryRef.current.shift();
              const avgNoise = volumeHistoryRef.current.reduce((a, b) => a + b, 0) / 120;
-             if (avgNoise > 35) { // If continuous average is > 35%, background is too noisy
-               setNoiseStatus("fail");
-             } else {
-               setNoiseStatus("pass");
-             }
+             setNoiseStatus(avgNoise > 35 ? "fail" : "pass");
           }
 
           animationRef.current = requestAnimationFrame(updateVolume);
@@ -138,9 +184,9 @@ const PreCheck = () => {
     };
   }, []);
 
-  // 3. Display & Peripheral Authorization
+  // 4. Advanced Heuristic Hardware Audit
   const handleAuthorizeSetup = async (e: React.PointerEvent) => {
-    const inputType = e.pointerType; // 'mouse', 'touch', 'pen'
+    const inputType = e.pointerType; 
     
     try {
       if (!window.isSecureContext) {
@@ -149,35 +195,103 @@ const PreCheck = () => {
         return;
       }
 
-      // @ts-ignore
-      if ("getScreenDetails" in window || "getScreens" in window) {
-        // @ts-ignore
-        const screenDetails = await window.getScreenDetails();
-        const screens = screenDetails.screens;
-        
-        if (screens.length > 1) {
-          setDisplayStatus("fail");
-          setDisplayMsg("Multiple displays detected. Please disconnect external monitors.");
-        } else if (!screens[0].isInternal) {
-          setDisplayStatus("fail");
-          setDisplayMsg("External display used as primary frame. Not allowed.");
-        } else {
-          setDisplayStatus("pass");
-          setDisplayMsg(`Display verified. Input method: ${inputType}`);
-        }
-      } else {
-        // @ts-ignore
-        if (window.screen.isExtended) {
-          setDisplayStatus("fail");
-          setDisplayMsg("Extended display detected.");
-        } else {
-          setDisplayStatus("pass");
-          setDisplayMsg(`Platform verified. Input method: ${inputType}`);
-        }
+      // Step A: Peripheral Handshake Heuristic (Audio Outputs)
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const outputDevices = devices.filter(d => d.kind === 'audiooutput');
+      
+      const suspiciousKeywords = ["hdmi", "displayport", "samsung", "lg", "dell", "tv", "monitor", "projector", "pnp"];
+      const externalAudio = outputDevices.find(d => 
+        suspiciousKeywords.some(key => d.label.toLowerCase().includes(key))
+      );
+
+      if (externalAudio) {
+        setDisplayStatus("fail");
+        setDisplayMsg(`External peripheral detected: ${externalAudio.label}. Please unplug HDMI/DP.`);
+        return;
       }
+
+      // Step B: Resolution Profiling
+      const screenWidth = window.screen.width;
+      const screenHeight = window.screen.height;
+      
+      // Standard duplicated projector or low-res monitor flags
+      const isLowRes = screenWidth <= 1366 && screenHeight <= 768; // Common mirroring sink target
+      if (isLowRes && window.devicePixelRatio < 2) {
+         setDisplayStatus("fail");
+         setDisplayMsg("Low resolution detected. This is typical of mirrored displays.");
+         return;
+      }
+
+      // Step C: Web API Check (Extended Monitors)
+      try {
+        const permName = "window-management" as PermissionName;
+        const permission = await navigator.permissions.query({ name: permName }).catch(() => 
+           navigator.permissions.query({ name: "window-placement" as PermissionName })
+        );
+
+        if (permission.state === 'denied') {
+          setDisplayStatus("fail");
+          setDisplayMsg("Allow 'Window Management' to verify hardware.");
+          return;
+        }
+
+        // @ts-ignore
+        if ("getScreenDetails" in window) {
+          // @ts-ignore
+          const details = await window.getScreenDetails();
+          const screen = details.screens[0];
+          
+          if (details.screens.length > 1) {
+            setDisplayStatus("fail");
+            setDisplayMsg("Multiple displays detected.");
+            return;
+          }
+
+          // Check for Non-Internal Label Heuristic
+          const internalKeywords = ["internal", "built-in", "laptop", "integrated"];
+          const isGenericLabel = !internalKeywords.some(key => screen.label.toLowerCase().includes(key));
+          
+          if (!screen.isInternal || isGenericLabel) {
+             setDisplayStatus("fail");
+             setDisplayMsg(`Non-internal display found: ${screen.label}`);
+             return;
+          }
+        }
+      } catch (err) {
+        console.warn("Web API Check failed, relying on Extension", err);
+      }
+
+      // Step D: Extension Hardware Audit
+      if (extensionStatus !== "found") {
+        setDisplayStatus("fail");
+        setDisplayMsg("Security Extension not active.");
+        return;
+      }
+
+      window.chrome.runtime.sendMessage(CHROME_EXTENSION_ID, { type: "GET_DISPLAY_SECURITY" }, (response: DisplayInfo) => {
+        if (!response || !response.success) {
+          setDisplayStatus("fail");
+          setDisplayMsg("Could not verify hardware.");
+          return;
+        }
+
+        const hasExternal = response.displays.some(d => !d.isInternal);
+        
+        if (response.isMirrored) {
+          setDisplayStatus("fail");
+          setDisplayMsg("Duplicated/Mirrored display detected.");
+        } else if (response.displayCount > 1 || hasExternal) {
+          setDisplayStatus("fail");
+          setDisplayMsg("External hardware detected. Use laptop screen only.");
+        } else {
+          setDisplayStatus("pass");
+          setDisplayMsg(`Hardware Verified. Mode: ${inputType}`);
+        }
+      });
+
     } catch (err) {
       setDisplayStatus("fail");
-      setDisplayMsg("Window permissions denied.");
+      setDisplayMsg("Display check failed.");
     }
   };
 
@@ -187,34 +301,30 @@ const PreCheck = () => {
         permissions.mic && 
         networkSpeed.status === "pass" && 
         noiseStatus !== "fail" &&
-        displayStatus === "pass"
+        displayStatus === "pass" &&
+        candidateName.trim() !== ""
     ) {
       setIsReady(true);
     } else {
       setIsReady(false);
     }
-  }, [permissions, networkSpeed, noiseStatus, displayStatus]);
+  }, [permissions, networkSpeed, noiseStatus, displayStatus, candidateName]);
 
   return (
     <div className="precheck-container">
       <div className="precheck-card">
-        <h1>System Validation</h1>
-        <p className="subtitle">Let's verify your environment setup before the interview begins.</p>
+        <h1>Proctoring Validation</h1>
+        <p className="subtitle">Strict hardware-level security audit in progress.</p>
 
         {errorMsg && <div className="error-banner">{errorMsg}</div>}
 
-        <div style={{marginBottom: "20px", textAlign: "left"}}>
-          <label style={{display: "block", color: "#94a3b8", fontSize: "0.9rem", marginBottom: "5px"}}>Candidate Full Name</label>
+        <div className="candidate-input">
+          <label>Candidate Legal Name</label>
           <input 
             type="text" 
             value={candidateName} 
             onChange={(e) => setCandidateName(e.target.value)}
-            placeholder="Enter your name"
-            style={{
-               width: "100%", padding: "12px", borderRadius: "8px", 
-               border: "1px solid #334155", background: "#0f172a", 
-               color: "white", fontSize: "1rem"
-            }}
+            placeholder="Enter your full name"
           />
         </div>
 
@@ -230,70 +340,65 @@ const PreCheck = () => {
                   className={`auth-btn ${displayStatus !== 'pending' ? displayStatus : ''}`}
                   onPointerDown={handleAuthorizeSetup}
                 >
-                   {displayStatus === 'pending' ? 'Authorize System (Click)' : displayMsg}
+                   {displayStatus === 'pending' ? 'Authorize Hardware Guard' : displayMsg}
                 </button>
             </div>
           </div>
 
           <div className="metrics-column">
-            {/* Audio Check */}
             <div className="metric-box">
               <div className="metric-header">
-                <h3>Microphone</h3>
+                <h3>Audio Environment</h3>
                 <span className={`status ${permissions.mic ? 'pass' : 'fail'}`}>
-                   {permissions.mic ? 'Connected' : 'Disconnected'}
+                   {permissions.mic ? 'Mic Ready' : 'Mic Blocked'}
                 </span>
               </div>
               <div className="volume-bar-track">
-                <div 
-                  className="volume-bar-fill" 
-                  style={{ 
-                    width: `${micVolume}%`,
-                    backgroundColor: micVolume > 80 ? '#f59e0b' : '#10b981'
-                  }}
-                />
+                <div className="volume-bar-fill" style={{ width: `${micVolume}%`, backgroundColor: micVolume > 80 ? '#f59e0b' : '#10b981' }} />
               </div>
               <div className="sub-metric">
-                 <span className="info-text">Background noise level:</span>
+                 <span className="info-text">Background Level:</span>
                  <span className={`status-small ${noiseStatus}`}>
-                    {noiseStatus === 'testing' ? 'Analyzing...' : noiseStatus === 'pass' ? 'Low' : 'Too High'}
+                    {noiseStatus === 'testing' ? 'Analyzing...' : noiseStatus === 'pass' ? 'Low' : 'High'}
                  </span>
               </div>
             </div>
 
-            {/* Network Check */}
             <div className="metric-box">
               <div className="metric-header">
-                <h3>Network Speed (Avg)</h3>
-                <span className={`status ${networkSpeed.status}`}>
-                  {networkSpeed.status === 'testing' ? 'Testing...' : 
-                   networkSpeed.status === 'pass' ? 'Good' : 'Poor'}
+                <h3>Hardware Extension</h3>
+                <span className={`status ${extensionStatus === 'found' ? 'pass' : 'fail'}`}>
+                  {extensionStatus === 'found' ? 'Active' : 'Missing'}
                 </span>
               </div>
-              <div className="speed-result">
-                <span className="speed-val">{networkSpeed.speedMbps}</span> Mbps
+              <p className="extension-help">
+                {extensionStatus === 'not_found' && "Mirroring detection required. Ensure extension is loaded."}
+                {extensionStatus === 'found' && "Extension verified. Ready for hardware scan."}
+              </p>
+            </div>
+
+            <div className="metric-box">
+              <div className="metric-header">
+                <h3>Network Avg</h3>
+                <span className={`status ${networkSpeed.status}`}>
+                  {networkSpeed.status === 'testing' ? 'Checking...' : networkSpeed.status === 'pass' ? 'Good' : 'Poor'}
+                </span>
               </div>
-              <span className="info-text">Minimum requirement: 0.5 Mbps</span>
+              <p className="sub-metric-info">{networkSpeed.speedMbps} Mbps detected</p>
             </div>
           </div>
         </div>
 
         <div className="action-row">
           <button 
-            className={`btn-primary ${!isReady || candidateName.trim() === '' ? 'disabled' : ''}`}
-            disabled={!isReady || candidateName.trim() === ''}
+            className={`btn-primary ${!isReady ? 'disabled' : ''}`}
+            disabled={!isReady}
             onClick={async () => {
-               try {
-                  if (document.documentElement.requestFullscreen) {
-                     await document.documentElement.requestFullscreen();
-                  }
-               } catch (err) {
-                  console.warn("Fullscreen request failed", err);
-               }
+               try { await document.documentElement.requestFullscreen(); } catch (e) {}
                navigate('/interview', { state: { candidateName } });
             }}
           >
-            Start Interview
+            Enter Secure Session
           </button>
         </div>
       </div>
