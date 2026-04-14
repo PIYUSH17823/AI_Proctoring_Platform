@@ -114,6 +114,9 @@
 | Step-19| Modify | endpoints.py/Admin.tsx | Polish: Implemented invitation status sync and detailed violation logs view. |
 | Step-20| Create | DEPLOYMENT_GUIDE.md | Handover: Professional instructions for one-click Docker deployment and AI tuning. |
 | Step-21| Create | email_service.py | Communication: Automated professional email invitations for candidates. |
+| Step-22| Create | ai_summary.py | Intelligence: Neural Behavioral Summary for quick recruiter auditing. |
+| Step-23| Modify | Reports/UI | Strategy: Integrated Extension Distribution plan and "Install" UI for candidates. |
+| Step-24| Create | HANDOVER_SUMMARY.md | Completion: Final handover package, email drafts, and packaging instructions. |
 
 ---
 

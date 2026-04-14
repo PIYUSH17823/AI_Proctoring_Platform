@@ -10,6 +10,7 @@ interface Session {
   logs: { timestamp: string; type: string }[];
   video_path: string | null;
   video_url?: string | null;
+  ai_summary?: string | null;
 }
 
 interface Job {
@@ -477,6 +478,13 @@ const Admin = () => {
               <button className="close-btn" onClick={() => setSelectedSession(null)}>&times;</button>
             </div>
             <div className="modal-body">
+              {selectedSession.ai_summary && (
+                <div className="ai-summary-box">
+                  <h4>🧠 Neural Analytics Summary</h4>
+                  <p>{selectedSession.ai_summary}</p>
+                </div>
+              )}
+              
               <div className="audit-summary">
                 <p>Total Violations: <strong>{selectedSession.logs.length}</strong></p>
                 <p>Session ID: <small>{selectedSession.session_id}</small></p>

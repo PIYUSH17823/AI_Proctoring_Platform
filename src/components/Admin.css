@@ -294,6 +294,44 @@
   margin-bottom: 1.5rem;
 }
 
+.ai-summary-box {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  padding: 1.5rem;
+  border-radius: 1rem;
+  margin-bottom: 2rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.ai-summary-box::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: var(--primary);
+}
+
+.ai-summary-box h4 {
+  margin: 0 0 0.75rem 0;
+  color: var(--primary);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ai-summary-box p {
+  margin: 0;
+  line-height: 1.6;
+  font-size: 0.95rem;
+  color: #fff;
+}
+
 .audit-table {
   width: 100%;
   border-collapse: collapse;

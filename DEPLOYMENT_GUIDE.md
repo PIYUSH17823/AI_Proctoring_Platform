@@ -29,6 +29,18 @@ To launch the entire stack (Database, Backend, and Frontend), follow these steps
 
 ---
 
+## 📦 Packaging & Distributing the Extension
+
+To make the **HyrAI Guard** mandatory for all candidates, you should host it on the Chrome Web Store:
+
+1.  **Locate the `extension/` folder** in the project root.
+2.  **ZIP the contents** of that folder (not the folder itself).
+3.  **Upload to [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole/)**.
+4.  **Copy the Extension ID** and update the `VITE_CHROME_EXTENSION_ID` in your `.env` file.
+5.  **Status**: Candidates will now see an "Install" button that links directly to your official store listing.
+
+---
+
 ## 🛠️ Configuration (Optional)
 
 You can modify the environment variables in the root `docker-compose.yml` file:

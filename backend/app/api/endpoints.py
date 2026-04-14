@@ -4,6 +4,7 @@ from app.schemas.models import StartSessionRequest, StartSessionRespond, Session
 from app.core.config import settings
 from app.core.auth import authenticate_admin, create_access_token, get_current_admin
 from app.services.email_service import send_invitation_email
+from app.services.ai_summary import generate_behavioral_summary
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import List
 import uuid
@@ -97,11 +98,25 @@ async def submit_interview(
         logger.error(json.dumps({"event": "video_save_failed", "session_id": session_id, "error": str(e)}))
         raise HTTPException(status_code=500, detail="Failed to save video.")
 
+    # Fetch session to get candidate name
+    session = await session_collection.find_one({"session_id": session_id})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found.")
+
+    # Generate AI Summary
+    ai_summary = generate_behavioral_summary(session.get("candidate_name", "Candidate"), logs)
+
     # Update Session
     try:
         result = await session_collection.update_one(
             {"session_id": session_id},
-            {"$set": {"status": "submitted", "logs": logs, "video_path": video_path, "submitted_at": datetime.utcnow()}}
+            {"$set": {
+                "status": "submitted", 
+                "logs": logs, 
+                "video_path": video_path, 
+                "ai_summary": ai_summary,
+                "submitted_at": datetime.utcnow()
+            }}
         )
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Session not found.")

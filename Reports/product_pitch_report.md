@@ -66,7 +66,17 @@ Our system uses a **Consensus Model** for display security:
 
 ---
 
-## 5. Deployment Simplicity (Handover Ready)
+## 5. Seamless Extension Distribution
+
+To ensure 100% security coverage while maintaining candidate trust, HyrAI utilizes a friction-less distribution model:
+*   **Chrome Web Store Integration**: The HyrAI Guard extension is hosted on the official Google Web Store. 
+*   **One-Click Installation**: If a candidate starts an interview without the extension, the platform detects it and provides a direct, one-click installation link.
+*   **Automatic Handshake**: Once installed, the extension automatically "vibrates" and authenticates with the interview session, requiring zero candidate configuration.
+*   **Privacy-First**: candidates are informed that the extension only activates during active interview sessions and self-disables afterwards.
+
+---
+
+## 6. Deployment Simplicity (Handover Ready)
 
 We have built HyrAI with a **"Zero-Configuration"** philosophy for the pitch:
 *   **Containerized Environment**: The entire stack is bundled in Docker. You can deploy to any Linux/Windows server with a single command.

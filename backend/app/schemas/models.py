@@ -19,6 +19,7 @@ class SessionInfo(BaseModel):
     logs: List[LogEntry]
     video_path: Optional[str] = None
     video_url: Optional[str] = None
+    ai_summary: Optional[str] = None
 
 class JobPosition(BaseModel):
     id: str

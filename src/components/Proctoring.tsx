@@ -33,6 +33,7 @@ const Proctoring = () => {
   const [screenCount, setScreenCount] = useState(1);
   const [isExternalDisplay, setIsExternalDisplay] = useState(false);
   const [pointerType, setPointerType] = useState<string>("unknown");
+  const [extensionInstalled, setExtensionInstalled] = useState<boolean | null>(null);
   const [displayError, setDisplayError] = useState<string | null>(null);
   const [displayPermission, setDisplayPermission] = useState<boolean>(false);
 
@@ -400,9 +401,10 @@ const Proctoring = () => {
         try {
           window.chrome.runtime.sendMessage(CHROME_EXTENSION_ID, { type: "GET_DISPLAY_SECURITY" }, (res: any) => {
             if (window.chrome.runtime.lastError) {
-              console.warn("[HyrAI] Extension disconnected during session.");
+              setExtensionInstalled(false);
               return;
             }
+            if (res) setExtensionInstalled(true);
 
             if (res && res.success) {
               const { displayCount, isMirrored, hasExternal, displays } = res;
@@ -600,7 +602,35 @@ const Proctoring = () => {
           </div>
         )}
 
-        {displayError && !displayPermission && (
+        {extensionInstalled === false && (
+          <div className="display-error-badge glass-panel" style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', padding: '2.5rem', zIndex: 100, textAlign: 'center', width: '450px', border: '1px solid var(--primary)' }}>
+            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🛡️</div>
+            <p style={{ color: 'var(--primary)', fontWeight: 700, fontSize: '1.2rem', marginBottom: '0.5rem' }}>HYRAI SECURITY GUARD MISSING</p>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-dim)', marginBottom: '2rem' }}>
+              To ensure interview integrity, the HyrAI Secure Extension is mandatory. Please install it to proceed with your session.
+            </p>
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+              <a 
+                href="https://chrome.google.com/webstore" 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="btn-premium"
+                style={{ textDecoration: 'none', display: 'inline-block' }}
+              >
+                Install from Web Store
+              </a>
+              <button 
+                className="btn-glass" 
+                onClick={() => window.location.reload()}
+                style={{ padding: '0.8rem 1.5rem', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.05)', color: '#fff', cursor: 'pointer' }}
+              >
+                I've installed it
+              </button>
+            </div>
+          </div>
+        )}
+
+        {displayError && !displayPermission && extensionInstalled !== false && (
           <div className="display-error-badge glass-panel" style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', padding: '2rem', zIndex: 50, textAlign: 'center', maxWidth: '80%' }}>
             <p style={{ color: 'var(--error)', fontWeight: 600 }}>DISPLAY SECURITY PROTOCOL REQUIRED</p>
             <p style={{ fontSize: '0.9rem', color: 'var(--text-dim)', marginBottom: '1.5rem' }}>{displayError}</p>
