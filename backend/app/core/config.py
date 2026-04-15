@@ -1,5 +1,11 @@
+import os
+from pathlib import Path
 from pydantic_settings import BaseSettings
 from typing import Optional
+
+# Get the absolute path to the backend directory
+BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+env_file_path = os.path.join(BACKEND_DIR, ".env")
 
 class Settings(BaseSettings):
     APP_NAME: str = "HyrAI Proctoring API"
@@ -34,7 +40,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 # 1 day
 
     class Config:
-        env_file = "backend/.env" # Explicit path from root
+        env_file = env_file_path
         extra = "ignore"
 
 settings = Settings()
