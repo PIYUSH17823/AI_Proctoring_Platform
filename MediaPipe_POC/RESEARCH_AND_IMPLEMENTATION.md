@@ -50,9 +50,23 @@ The current trend in secure assessments is to minimizefriction. Traditional brow
 - **Logic**: `objectDetector.detectForVideo()` filtering for labels: `cell phone`, `laptop`, `book`.
 - **Polish**: Specific logging (e.g., "LAPTOP DETECTED") implemented.
 
-### Phase 3: Screen Monitoring
-**Goal**: Ensure only the exam tab is visible and no duplicate displays are active.
-- **Logic**: Combining `getDisplayMedia` with `window.screen` metadata.
+### Phase 3: Neural Behavioral Engine - (Deep Dive Research)
+**Goal**: Identify deceptive behavioral patterns via micro-expression and muscle movement audit.
+
+#### 1. Deceptive Cues identified for Proctoring:
+- **Suppressed Communication**: High values in `mouthPressLeft/Right` indicate a user attempting to remain silent while receiving external assistance.
+- **The "Searching" Gaze**: Combining `eyeLookIn/Out` with `browDown` (Concentration) to differentiate between "Solving a Problem" and "Finding an Answer."
+- **Surprise Spikes**: Rapid increases in `eyeWide` and `browOuterUp` correlate with peripheral intrusions (collaborators entering the room).
+- **Mumbling/Whispering**: High sensitivity `jawOpen` tracking combined with `mouthLowerDown` to detect non-vocalized speech.
+
+#### 2. Heuristic Thresholds (Sensitive Mode):
+- **Talk Detection**: `jawOpen > 0.15` (Sensitive) to catch micro-whispers.
+- **Surprise**: `eyeWide > 0.4` to identify sudden visual shifts.
+- **Stress Anomaly**: `browInnerUp > 0.3` (Distress) vs `browDown` (Focus) ratio.
+
+#### 3. Technical Strategy:
+- **EMA Filtering**: Applying a 0.2 alpha Exponential Moving Average to stabilize raw muscle scores.
+- **Behavioral Scoring**: Moving beyond binary alerts to a "Behavioral Anomaly Score" (0-100%).
 
 ---
 

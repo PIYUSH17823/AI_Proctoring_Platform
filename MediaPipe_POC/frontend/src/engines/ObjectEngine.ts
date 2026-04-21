@@ -14,6 +14,7 @@ export class ObjectEngine {
   private detector: ObjectDetector | null = null;
   private isLoaded = false;
   private prohibitedLabels = ["cell phone", "laptop", "book"];
+  private detectionHistory: Record<string, number> = {};
 
   async initialize() {
     try {
@@ -24,10 +25,10 @@ export class ObjectEngine {
       this.detector = await ObjectDetector.createFromOptions(vision, {
         baseOptions: {
           modelAssetPath: `/models/efficientdet_lite0.tflite`,
-          delegate: "AUTO"
+          delegate: "GPU"
         },
         runningMode: "VIDEO",
-        scoreThreshold: 0.2
+        scoreThreshold: 0.15
       });
 
       this.isLoaded = true;
@@ -55,11 +56,26 @@ export class ObjectEngine {
     detections.forEach(detection => {
       const label = detection.categories[0]?.categoryName;
       if (label) {
-        items.push(label);
-        if (this.prohibitedLabels.includes(label)) {
-          isProhibited = true;
+        // Track persistence for every label (Once per frame)
+        const isDuplicate = items.includes(label);
+        items.push(label); // Restore missing push
+        
+        if (!isDuplicate) {
+          this.detectionHistory[label] = (this.detectionHistory[label] || 0) + 1;
         }
-        if (label === "person") {
+
+        if (this.prohibitedLabels.includes(label)) {
+          // High-Risk Items: Alert after 3 frames (Instant Response)
+          const requiredFrames = label === "cell phone" ? 3 : 15;
+          const currentPersistence = this.detectionHistory[label] || 0;
+          if (currentPersistence > requiredFrames) {
+            isProhibited = true;
+          }
+        }
+        
+        // Multi-Person Logic: Only count if confidence is high to avoid ghost detections
+        const score = detection.categories[0]?.score || 0;
+        if (label === "person" && score > 0.4) {
           personCount++;
         }
       }
@@ -67,7 +83,7 @@ export class ObjectEngine {
 
     let message = "Environment Clear";
     const prohibitedFound = items.filter(item => this.prohibitedLabels.includes(item));
-    
+
     if (prohibitedFound.length > 0) {
       message = `${prohibitedFound[0].toUpperCase()} DETECTED`;
     } else if (personCount > 1) {

@@ -13,6 +13,7 @@ export interface DetectionResults {
   };
   isAlert: boolean;
   message: string;
+  rawBlendshapes: any[]; // Share for Phase 3
 }
 
 export class FaceEngine {
@@ -105,7 +106,8 @@ export class FaceEngine {
         right: { x: irisRightX, y: rightIris.y }
       },
       isAlert,
-      message
+      message,
+      rawBlendshapes: blendshapes
     };
   }
 
@@ -118,7 +120,8 @@ export class FaceEngine {
         right: { x: 0.5, y: 0 }
       },
       isAlert,
-      message
+      message,
+      rawBlendshapes: []
     };
   }
 }
