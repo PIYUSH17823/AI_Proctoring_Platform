@@ -202,6 +202,53 @@ video {
   cursor: pointer;
   font-size: 0.7rem;
   font-weight: 700;
+  transition: all 0.2s ease;
+}
+
+.audit-btn:hover {
+  background: var(--accent-primary);
+  color: black;
+}
+
+/* Calibration Modal */
+.calibration-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.9);
+  backdrop-filter: blur(20px);
+  z-index: 2000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+.calibration-progress-container {
+  width: 300px;
+  height: 4px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 99px;
+  margin: 1.5rem auto;
+  overflow: hidden;
+}
+
+.calibration-progress-bar {
+  height: 100%;
+  background: var(--accent-primary);
+  transition: width 0.1s linear;
+}
+
+.stability-spark {
+  width: 100%;
+  height: 20px;
+  background: rgba(0,0,0,0.2);
+  margin-top: 0.5rem;
+  position: relative;
+  overflow: hidden;
+  border-radius: 2px;
 }
 
 .telemetry-card {

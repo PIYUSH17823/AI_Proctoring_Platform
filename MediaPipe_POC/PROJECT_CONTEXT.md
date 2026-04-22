@@ -33,8 +33,10 @@
 | Phase 1: Foundation | Backend/Frontend Setup | ✅ Complete |
 | Phase 1.5: Face Engine | Eye tracking & Gaze | ✅ Complete |
 | Phase 2: Object Audit | Detailed device detection | ✅ Complete |
-| Phase 3: Emotion Audit | Verbal & Behavioral | ⏳ Planning |
-| Phase 4: Screen Audit | Window monitoring | ⏳ Pending |
+| Phase 3.5: Pro-Grade | Noise Suppression (Drinking) | ✅ Complete |
+| Phase 4: Screen Audit | Window monitoring & Jail | ✅ Complete |
+| Phase 5: Integrity Audit| VSync Jitter / VM Detection | ⏳ Planning |
+| Phase 6: Neuro Audit | Micro-Expressions / Saccades| ⏳ Planning |
 
 ---
 

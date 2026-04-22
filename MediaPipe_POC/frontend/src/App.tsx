@@ -4,6 +4,7 @@ import { FaceEngine, type DetectionResults } from './engines/FaceEngine';
 import { ObjectEngine, type ObjectDetectionResults } from './engines/ObjectEngine';
 import { EmotionEngine, type EmotionResults } from './engines/EmotionEngine';
 import { HardwareEngine, type HardwareStatus } from './engines/HardwareEngine';
+import { HardwareIntegrityEngine, type IntegrityResults } from './engines/HardwareIntegrityEngine';
 
 const BACKEND_URL = 'http://localhost:8000';
 
@@ -27,11 +28,15 @@ function App() {
   const objectEngineRef = useRef<ObjectEngine | null>(null);
   const emotionEngineRef = useRef<EmotionEngine | null>(null);
   const hardwareEngineRef = useRef<HardwareEngine | null>(null);
+  const integrityEngineRef = useRef<HardwareIntegrityEngine | null>(null);
 
   const [faceResults, setFaceResults] = useState<DetectionResults | null>(null);
   const [objectResults, setObjectResults] = useState<ObjectDetectionResults | null>(null);
   const [emotionResults, setEmotionResults] = useState<EmotionResults | null>(null);
   const [hardwareStatus, setHardwareStatus] = useState<HardwareStatus | null>(null);
+  const [integrityResults, setIntegrityResults] = useState<IntegrityResults | null>(null);
+  const [isCalibrating, setIsCalibrating] = useState(false);
+  const [isDebugJitter, setIsDebugJitter] = useState(false);
   const [activeIncidents, setActiveIncidents] = useState<Incident[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -65,6 +70,7 @@ function App() {
       const objectEngine = new ObjectEngine();
       const emotionEngine = new EmotionEngine();
       const hardwareEngine = new HardwareEngine();
+      const integrityEngine = new HardwareIntegrityEngine();
 
       try {
         await Promise.all([faceEngine.initialize(), objectEngine.initialize()]);
@@ -72,6 +78,7 @@ function App() {
         objectEngineRef.current = objectEngine;
         emotionEngineRef.current = emotionEngine;
         hardwareEngineRef.current = hardwareEngine;
+        integrityEngineRef.current = integrityEngine;
         
         hardwareEngine.subscribe(status => {
           setHardwareStatus(status);
@@ -116,31 +123,57 @@ function App() {
         try {
           const timestamp = performance.now();
           const face = faceEngineRef.current.detect(videoRef.current, timestamp);
-          const objects = objectEngineRef.current.detect(videoRef.current, timestamp);
           
-          // Contextual Suppression (Drinking Water)
-          const isDrinking = objects.detectedItems.some(item => ["bottle", "cup", "wine glass"].includes(item));
+          // Phase 2: Object Detection
+          const objects = objectEngineRef.current.detect(videoRef.current, timestamp);
+          setObjectResults(objects);
+          
+          // Intake Mode Refinement: If a phone is seen, SHUT DOWN intake mode (Prevent spoofing)
+          const isDrinking = objects.detectedItems.some(item => ["bottle", "cup", "wine glass"].includes(item)) && !objects.isProhibited;
+          
           const emotions = emotionEngineRef.current.process(face.rawBlendshapes, isDrinking);
 
           setFaceResults(face);
-          setObjectResults(objects);
           setEmotionResults({ ...emotions });
 
           // Instant Multi-Violation Tracking
           const newIncidents: Incident[] = [];
+          
+          if (isDrinking) {
+            newIncidents.push({ id: `env-${timestamp}`, label: 'INTAKE MODE', severity: 'info' });
+          }
+
           if (objects.isProhibited) {
-            newIncidents.push({ id: 'obj', label: objects.message, severity: 'critical' });
+            newIncidents.push({ id: `obj-${timestamp}`, label: objects.message, severity: 'critical' });
+            
+            // EVIDENCE CAPTURE: Take a snapshot if this is a fresh violation
+            if (Math.random() < 0.1) { 
+              captureEvidence(objects.message);
+            }
           }
           if (face.isAlert && !isDrinking) {
-            newIncidents.push({ id: 'face', label: face.message, severity: 'warning' });
+            newIncidents.push({ id: `face-${timestamp}`, label: face.message, severity: 'warning' });
           }
           if (emotions.isTalking && !isDrinking) {
-            newIncidents.push({ id: 'talk', label: 'TALKING DETECTED', severity: 'warning' });
+            newIncidents.push({ id: `talk-${timestamp}`, label: 'TALKING DETECTED', severity: 'warning' });
           }
           if (isDrinking) {
             newIncidents.push({ id: 'env', label: 'INTAKE MODE', severity: 'info' });
           }
           
+          // Phase 5: Hardware Integrity (Jitter)
+          if (integrityEngineRef.current) {
+            const integrity = integrityEngineRef.current.processFrame(timestamp);
+            setIntegrityResults({ ...integrity }); 
+            if (integrity.isCompromised) {
+              newIncidents.push({ id: `jit-${timestamp}`, label: 'HARDWARE INTEGRITY COMPROMISED', severity: 'warning' });
+              // Throttled Log for Jitter
+              if (Math.random() < 0.05) { // Only log occasionally to prevent spam
+                addLog("HARDWARE", "Inconsistent display pulse detected (Potential VM)", "high");
+              }
+            }
+          }
+
           // Phase 4: Hardware Checks
           if (hardwareStatus && !hardwareStatus.isTabVisible) {
             newIncidents.push({ id: 'tab', label: 'TAB SWITCH DETECTED', severity: 'critical' });
@@ -196,17 +229,45 @@ function App() {
       const track = stream.getVideoTracks()[0];
       const settings = track.getSettings() as any;
       
-      // Verification: Did they share the ENTIRE screen?
       if (settings.displaySurface !== "monitor") {
         addLog("SECURITY", "BLOCK: Entire Screen sharing is mandatory.", "high");
         track.stop();
         return;
       }
 
-      addLog("SECURITY", "Screen Audit Verified: Full Desktop Active", "low");
-      // In a real app, we would pipe this stream to the backend
+      addLog("SECURITY", "Screen Audit Verified. Starting Display Sync...", "low");
+      setIsCalibrating(true);
+      integrityEngineRef.current?.startCalibration();
+      
+      setTimeout(() => {
+        setIsCalibrating(false);
+        addLog("SECURITY", "Hardware Integrity Baseline Set", "low");
+      }, 5500);
+
     } catch (err) {
       addLog("SECURITY", "Screen Audit Denied", "high");
+    }
+  };
+
+  const toggleSimulation = () => {
+    const newState = !isDebugJitter;
+    setIsDebugJitter(newState);
+    integrityEngineRef.current?.setDebugMode(newState);
+    addLog("DEBUG", newState ? "Jitter Simulation: ACTIVE" : "Jitter Simulation: INACTIVE", "low");
+  };
+
+  const captureEvidence = (label: string) => {
+    if (!videoRef.current) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.drawImage(videoRef.current, 0, 0);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.5);
+      addLog("EVIDENCE", `Capture: ${label}`, "high");
+      console.log(`📸 Evidence Captured for ${label}`);
+      // In a real app, you would POST dataUrl to the backend here
     }
   };
 
@@ -220,6 +281,22 @@ function App() {
             <p>You have navigated away from the exam environment.</p>
             <p style={{ opacity: 0.7 }}>Return to this tab immediately to restore access.</p>
             <div className="pulse-circle" />
+          </div>
+        </div>
+      )}
+
+      {/* Phase 5: Calibration Overlay */}
+      {isCalibrating && (
+        <div className="calibration-overlay">
+          <div className="lockout-content">
+            <h2 style={{ color: 'var(--accent-primary)' }}>Syncing with Display...</h2>
+            <p style={{ opacity: 0.6, fontSize: '0.9rem' }}>Please keep this window focused while we establish a hardware baseline.</p>
+            <div className="calibration-progress-container">
+              <div 
+                className="calibration-progress-bar" 
+                style={{ width: `${integrityEngineRef.current?.getCalibrationProgress()}%` }} 
+              />
+            </div>
           </div>
         </div>
       )}
@@ -285,6 +362,45 @@ function App() {
              </div>
           </div>
           <div className="telemetry-card">
+            <div className="telemetry-label">Hardware Integrity</div>
+            <div className="telemetry-value" style={{ 
+              fontSize: '0.8rem', 
+              color: (integrityResults?.trustScore || 0) < 0.8 ? 'var(--danger)' : 'var(--success)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '4px'
+            }}>
+              <span>{Math.round((integrityResults?.trustScore || 1) * 100)}% Trust</span>
+              <div style={{ 
+                height: '4px', 
+                width: '100%', 
+                background: 'rgba(255,255,255,0.1)',
+                borderRadius: '2px',
+                overflow: 'hidden'
+              }}>
+                <div style={{ 
+                  height: '100%', 
+                  width: `${(integrityResults?.trustScore || 1) * 100}%`,
+                  background: (integrityResults?.trustScore || 1) < 0.8 ? 'var(--danger)' : 'var(--success)',
+                  transition: 'width 0.3s ease'
+                }} />
+              </div>
+            </div>
+          </div>
+
+          <div className="telemetry-card">
+            <div className="telemetry-label">Environment Audit</div>
+            <div className="telemetry-value" style={{ 
+              fontSize: '0.8rem', 
+              color: objectResults?.isProhibited ? 'var(--danger)' : 'var(--success)' 
+            }}>
+              {objectResults?.detectedItems.length 
+                ? [...new Set(objectResults.detectedItems)].slice(0, 3).join(', ').toUpperCase() 
+                : 'SCANNING...'}
+            </div>
+          </div>
+
+          <div className="telemetry-card">
             <div className="telemetry-label">Hardware Logic</div>
             <div className="telemetry-value" style={{ 
               fontSize: '0.8rem', 
@@ -295,7 +411,15 @@ function App() {
           </div>
         </div>
 
-        <div style={{ position: 'fixed', bottom: '1rem', right: '1rem', zIndex: 100 }}>
+        <div style={{ position: 'fixed', bottom: '1rem', right: '1rem', zIndex: 100, display: 'flex', gap: '0.5rem' }}>
+          <button 
+            className="audit-btn" 
+            style={{ background: isDebugJitter ? 'var(--danger)' : 'rgba(255,171,0,0.1)' }}
+            onClick={toggleSimulation}
+          >
+            {isDebugJitter ? 'STOP SIMULATION' : 'SIMULATE INTERCEPTION'}
+          </button>
+          
           <button className="audit-btn" onClick={startScreenAudit}>
             START SCREEN AUDIT
           </button>
