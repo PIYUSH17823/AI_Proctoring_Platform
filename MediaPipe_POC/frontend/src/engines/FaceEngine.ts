@@ -13,7 +13,8 @@ export interface DetectionResults {
   };
   isAlert: boolean;
   message: string;
-  rawBlendshapes: any[]; // Share for Phase 3
+  rawBlendshapes: any[];
+  rawLandmarks: any[]; // NEW: For neural behavioral audit
 }
 
 export class FaceEngine {
@@ -107,7 +108,8 @@ export class FaceEngine {
       },
       isAlert,
       message,
-      rawBlendshapes: blendshapes
+      rawBlendshapes: blendshapes,
+      rawLandmarks: landmarks // Passing the ball to Phase 3
     };
   }
 
@@ -121,7 +123,8 @@ export class FaceEngine {
       },
       isAlert,
       message,
-      rawBlendshapes: []
+      rawBlendshapes: [],
+      rawLandmarks: []
     };
   }
 }

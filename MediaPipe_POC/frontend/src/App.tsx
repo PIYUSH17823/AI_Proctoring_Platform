@@ -5,6 +5,8 @@ import { ObjectEngine, type ObjectDetectionResults } from './engines/ObjectEngin
 import { EmotionEngine, type EmotionResults } from './engines/EmotionEngine';
 import { HardwareEngine, type HardwareStatus } from './engines/HardwareEngine';
 import { HardwareIntegrityEngine, type IntegrityResults } from './engines/HardwareIntegrityEngine';
+import { NeuralEngine } from './engines/NeuralEngine';
+import { FeatureEngine } from './engines/FeatureEngine';
 
 const BACKEND_URL = 'http://localhost:8000';
 
@@ -29,6 +31,8 @@ function App() {
   const emotionEngineRef = useRef<EmotionEngine | null>(null);
   const hardwareEngineRef = useRef<HardwareEngine | null>(null);
   const integrityEngineRef = useRef<HardwareIntegrityEngine | null>(null);
+  const neuralEngineRef = useRef<NeuralEngine | null>(null);
+  const frameCountRef = useRef<number>(0);
 
   const [faceResults, setFaceResults] = useState<DetectionResults | null>(null);
   const [objectResults, setObjectResults] = useState<ObjectDetectionResults | null>(null);
@@ -71,14 +75,21 @@ function App() {
       const emotionEngine = new EmotionEngine();
       const hardwareEngine = new HardwareEngine();
       const integrityEngine = new HardwareIntegrityEngine();
+      const neuralEngine = new NeuralEngine();
 
       try {
-        await Promise.all([faceEngine.initialize(), objectEngine.initialize()]);
         faceEngineRef.current = faceEngine;
         objectEngineRef.current = objectEngine;
         emotionEngineRef.current = emotionEngine;
         hardwareEngineRef.current = hardwareEngine;
         integrityEngineRef.current = integrityEngine;
+        neuralEngineRef.current = neuralEngine;
+
+        await Promise.all([
+          faceEngine.initialize(), 
+          objectEngine.initialize(),
+          neuralEngine.initialize() // Booting the brain
+        ]);
         
         hardwareEngine.subscribe(status => {
           setHardwareStatus(status);
@@ -135,6 +146,26 @@ function App() {
 
           setFaceResults(face);
           setEmotionResults({ ...emotions });
+
+          // --- PHASE 3: NEURAL BEHAVIORAL AUDIT ---
+          frameCountRef.current++;
+          if (frameCountRef.current % 6 === 0 && face.rawLandmarks && face.rawLandmarks.length > 0) {
+            // 1. Extract Smart Features (DAR)
+            const featureVector = FeatureEngine.extract(face.rawLandmarks);
+            
+            // 2. Run Neural Inference
+            try {
+              if (neuralEngineRef.current) {
+                const neuralOutputs = neuralEngineRef.current.predict(featureVector);
+                // DEBUG: Verify that features are being extracted correctly
+                if (frameCountRef.current % 60 === 0) { 
+                  console.log("📡 Neural Feature Stream (First 5):", featureVector.slice(0, 5));
+                }
+              }
+            } catch (e) {
+              // Silently skip if engine is still warming up
+            }
+          }
 
           // Instant Multi-Violation Tracking
           const newIncidents: Incident[] = [];
@@ -214,7 +245,10 @@ function App() {
     };
 
     requestRef = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(requestRef);
+    return () => {
+      cancelAnimationFrame(requestRef);
+      neuralEngineRef.current?.dispose(); // Cleaning up GPU memory
+    };
   }, [sessionId, isReady]);
 
   const hasCritical = activeIncidents.some(i => i.severity === 'critical');

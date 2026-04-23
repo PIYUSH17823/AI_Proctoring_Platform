@@ -12,14 +12,16 @@
 ---
 
 ## Architecture Summary
-- Backend Structure:
-  - backend/
-    - main.py (Single-file fast start for POC)
-- Frontend Structure:
-  - frontend/
-    - src/
-      - engines/ (MediaPipe logic)
-      - components/
+- Frontend:
+  - engines/
+    - FaceEngine.ts (MediaPipe Vision)
+    - ObjectEngine.ts (MediaPipe TFLite)
+    - NeuralEngine.ts (TF.js Model Control) ✅
+    - FeatureEngine.ts (Geometric Normalization) ✅
+    - HardwareIntegrityEngine.ts (V-Sync/Jitter)
+- Backend:
+  - main.py (FastAPI)
+  - data/ (Logging & Metrics)
 - Database: MongoDB (hyrai_poc_db)
 - Detection System:
   - MediaPipe Face Landmarker (Head Pose & Gaze)
@@ -64,6 +66,7 @@
 - Database: `hyrai_poc_db`
 - Strategy: Isolated collections for POC logs.
 
-### MediaPipe
-- Using `@mediapipe/tasks-vision` for all neural audits.
-- No extension dependency.
+### Neural Behavioral Audit
+- Status: Phase 3 Completed (Inference Loop Active)
+- Engine: TensorFlow.js (WebGL Backend)
+- Logic: Pose-invariant Geometric Ratios (DAR)
